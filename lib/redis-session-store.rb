@@ -6,7 +6,7 @@ class RedisSessionStore < ActionDispatch::Session::AbstractStore
   VERSION = '0.9.1'.freeze
   # Rails 3.1 and beyond defines the constant elsewhere
   unless defined?(ENV_SESSION_OPTIONS_KEY)
-    if Rack.release.split('.').first.to_i > 1
+    if Rack.const_defined?(:RACK_SESSION_OPTIONS)
       ENV_SESSION_OPTIONS_KEY = Rack::RACK_SESSION_OPTIONS
     else
       ENV_SESSION_OPTIONS_KEY = Rack::Session::Abstract::ENV_SESSION_OPTIONS_KEY
