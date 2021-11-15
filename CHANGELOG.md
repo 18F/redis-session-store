@@ -4,6 +4,42 @@
 
 ## [Unreleased]
 
+## [0.11.3] - 2020-07-23
+### Fixed
+- https://github.com/roidrage/redis-session-store/issues/121
+
+## [0.11.2] - 2020-07-22
+### Changed
+- Silence deprecation warning when using with redis gem v4.2+
+
+## [0.11.1] - 2019-08-22
+### Changed
+- Remove the `has_rdoc` parameter from the `.gemspec` file as it has been deprecated.
+- Actionpack to '>= 3', remove upper dependency
+
+## [0.11.0] - 2018-08-13
+### Changed
+- JRuby to jruby-9.2.0.0
+- Travis Ruby support: 2.3.7, 2.4.4, 2.5.1
+
+### Added
+- :ttl configuration option
+
+## [0.10.0] - 2018-04-14
+### Changed
+- JRuby to jruby-9.1.15.0
+- Redis to '>= 3', '< 5'
+- Actionpack to '>= 3', '< 6'
+- Rake to 12
+
+### Added
+- with_indifferent_access if defined ActiveSupport
+
+## [0.9.2] - 2017-10-31
+### Changed
+- Actionpack to 5.1
+- Travis use jruby 9.1.13.0
+
 ## [0.9.1] - 2016-07-03
 ### Added
 - More specific runtime dependencies
@@ -201,7 +237,11 @@
 ### Added
 - first working version
 
-[Unreleased]: https://github.com/roidrage/redis-session-store/compare/v0.9.1...HEAD
+[Unreleased]: https://github.com/roidrage/redis-session-store/compare/v0.11.1...HEAD
+[0.11.1]: https://github.com/roidrage/redis-session-store/compare/v0.11.0...v0.11.1
+[0.11.0]: https://github.com/roidrage/redis-session-store/compare/v0.10.0...v0.11.0
+[0.10.0]: https://github.com/roidrage/redis-session-store/compare/v0.9.2...v0.10.0
+[0.9.2]: https://github.com/roidrage/redis-session-store/compare/v0.9.1...v0.9.2
 [0.9.1]: https://github.com/roidrage/redis-session-store/compare/v0.9.0...v0.9.1
 [0.9.0]: https://github.com/roidrage/redis-session-store/compare/v0.8.1...v0.9.0
 [0.8.1]: https://github.com/roidrage/redis-session-store/compare/v0.8.0...v0.8.1

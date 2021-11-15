@@ -3,16 +3,17 @@ require 'redis'
 # Redis session storage for Rails, and for Rails only. Derived from
 # the MemCacheStore code, simply dropping in Redis instead.
 class RedisSessionStore < ActionDispatch::Session::AbstractStore
-  VERSION = '0.9.1'.freeze
+  VERSION = '0.11.3'.freeze
   # Rails 3.1 and beyond defines the constant elsewhere
   unless defined?(ENV_SESSION_OPTIONS_KEY)
-    if Rack.const_defined?(:RACK_SESSION_OPTIONS)
-      ENV_SESSION_OPTIONS_KEY = Rack::RACK_SESSION_OPTIONS
-    else
-      ENV_SESSION_OPTIONS_KEY = Rack::Session::Abstract::ENV_SESSION_OPTIONS_KEY
-    end
+    ENV_SESSION_OPTIONS_KEY = if Rack.release.split('.').first.to_i > 1
+                                Rack::RACK_SESSION_OPTIONS
+                              else
+                                Rack::Session::Abstract::ENV_SESSION_OPTIONS_KEY
+                              end
   end
 
+  USE_INDIFFERENT_ACCESS = defined?(ActiveSupport).freeze
   # ==== Options
   # * +:key+ - Same as with the other cookie stores, key name
   # * +:redis+ - A hash with redis-specific options
@@ -26,12 +27,12 @@ class RedisSessionStore < ActionDispatch::Session::AbstractStore
   #
   # ==== Examples
   #
-  #     My::Application.config.session_store :redis_session_store, {
+  #     Rails.application.config.session_store :redis_session_store, {
   #       key: 'your_session_key',
   #       redis: {
   #         expire_after: 120.minutes,
   #         key_prefix: 'myapp:session:',
-  #         url: 'redis://host:12345/2'
+  #         url: 'redis://localhost:6379/0'
   #       },
   #       on_redis_down: ->(*a) { logger.error("Redis down! #{a.inspect}") }
   #       serializer: :hybrid # migrate from Marshal to JSON
@@ -66,12 +67,22 @@ class RedisSessionStore < ActionDispatch::Session::AbstractStore
 
     !!(
       value && !value.empty? &&
-      redis.exists(prefixed(value))
+      key_exists?(value)
     )
   rescue Errno::ECONNREFUSED, Redis::CannotConnectError => e
     on_redis_down.call(e, env, value) if on_redis_down
 
     true
+  end
+
+  def key_exists?(value)
+    if redis.respond_to?(:exists?)
+      # added in redis gem v4.2
+      redis.exists?(prefixed(value))
+    else
+      # older method, will return an integer starting in redis gem v4.3
+      redis.exists(prefixed(value))
+    end
   end
 
   def verify_handlers!
@@ -86,16 +97,15 @@ class RedisSessionStore < ActionDispatch::Session::AbstractStore
     "#{default_options[:key_prefix]}#{sid}"
   end
 
-  def get_session(env, sid)
-    unless sid && (session = load_session_from_redis(sid))
-      sid = generate_sid
-      session = {}
-    end
+  def session_default_values
+    [generate_sid, USE_INDIFFERENT_ACCESS ? {}.with_indifferent_access : {}]
+  end
 
-    [sid, session]
+  def get_session(env, sid)
+    sid && (session = load_session_from_redis(sid)) ? [sid, session] : session_default_values
   rescue Errno::ECONNREFUSED, Redis::CannotConnectError => e
     on_redis_down.call(e, env, sid) if on_redis_down
-    [generate_sid, {}]
+    session_default_values
   end
   alias find_session get_session
 
@@ -103,7 +113,7 @@ class RedisSessionStore < ActionDispatch::Session::AbstractStore
     data = redis.get(prefixed(sid))
     begin
       data ? decode(data) : nil
-    rescue => e
+    rescue StandardError => e
       destroy_session_from_sid(sid, drop: true)
       on_session_load_error.call(e, sid) if on_session_load_error
       nil
@@ -111,7 +121,8 @@ class RedisSessionStore < ActionDispatch::Session::AbstractStore
   end
 
   def decode(data)
-    serializer.load(data)
+    session = serializer.load(data)
+    USE_INDIFFERENT_ACCESS ? session.with_indifferent_access : session
   end
 
   def set_session(env, sid, session_data, options = nil)
@@ -121,10 +132,10 @@ class RedisSessionStore < ActionDispatch::Session::AbstractStore
     else
       redis.set(prefixed(sid), encode(session_data))
     end
-    return sid
+    sid
   rescue Errno::ECONNREFUSED, Redis::CannotConnectError => e
     on_redis_down.call(e, env, sid) if on_redis_down
-    return false
+    false
   end
   alias write_session set_session
 
