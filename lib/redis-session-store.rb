@@ -53,6 +53,9 @@ class RedisSessionStore < ActionDispatch::Session::AbstractSecureStore
     @on_redis_down = options[:on_redis_down]
     @serializer = determine_serializer(options[:serializer])
     @on_session_load_error = options[:on_session_load_error]
+    @default_redis_ttl = redis_options[:ttl]
+    @write_fallback = redis_options[:write_fallback]
+    @read_fallback = redis_options[:read_fallback]
     verify_handlers!
   end
 
@@ -60,36 +63,7 @@ class RedisSessionStore < ActionDispatch::Session::AbstractSecureStore
 
   private
 
-  attr_reader :redis_pool, :single_redis, :key, :default_options, :serializer
-
-  # overrides method defined in rack to actually verify session existence
-  # Prevents needless new sessions from being created in scenario where
-  # user HAS session id, but it already expired, or is invalid for some
-  # other reason, and session was accessed only for reading.
-  def session_exists?(env)
-    value = current_session_id(env)
-
-    !!(
-      value && !value.empty? &&
-      key_exists?(value)
-    )
-  rescue Errno::ECONNREFUSED, Redis::CannotConnectError => e
-    on_redis_down.call(e, env, value) if on_redis_down
-
-    true
-  end
-
-  def key_exists?(value)
-    with_redis do |redis|
-      if redis.respond_to?(:exists?)
-        # added in redis gem v4.2
-        redis.exists?(prefixed(value))
-      else
-        # older method, will return an integer starting in redis gem v4.3
-        redis.exists(prefixed(value))
-      end
-    end
-  end
+  attr_reader :redis_pool, :single_redis, :key, :default_options, :serializer, :default_redis_ttl, :read_fallback, :write_fallback
 
   def verify_handlers!
     %w(on_redis_down on_session_load_error).each do |h|
@@ -100,30 +74,45 @@ class RedisSessionStore < ActionDispatch::Session::AbstractSecureStore
   end
 
   def prefixed(sid)
+    return nil unless sid && sid.private_id
+    "#{default_options[:key_prefix]}#{sid.private_id}"
+  end
+
+  def prefixed_fallback(sid)
     "#{default_options[:key_prefix]}#{sid}"
   end
 
-  def session_default_values
-    [generate_sid, USE_INDIFFERENT_ACCESS ? {}.with_indifferent_access : {}]
+  def create_sid_with_empty_session(redis_connection)
+    loop do
+      sid = generate_sid
+      key = prefixed(sid)
+      if key && redis_connection.set(key, encode({}), nx: true, ex: default_redis_ttl)
+        break sid
+      end
+    end
   end
 
-  def get_session(env, sid)
-    sid && (session = load_session_from_redis(sid)) ? [sid, session] : session_default_values
-  rescue Errno::ECONNREFUSED, Redis::CannotConnectError => e
-    on_redis_down.call(e, env, sid) if on_redis_down
-    session_default_values
-  end
-  alias find_session get_session
+  def find_session(req, sid)
+    with_redis_connection([nil, {}]) do |redis_connection|
+      existing_session = load_session_from_redis(redis_connection, sid)
+      return [sid, existing_session] unless existing_session.nil?
 
-  def load_session_from_redis(sid)
-    data = with_redis do |redis|
-      redis.get(prefixed(sid))
+      [create_sid_with_empty_session(redis_connection), {}]
+    end
+  end
+
+  def load_session_from_redis(redis_connection, sid)
+    return nil unless sid
+    if read_fallback
+      data = redis_connection.get(prefixed(sid)) || redis_connection.get(prefixed_fallback(sid))
+    else
+      data = redis_connection.get(prefixed(sid))
     end
 
     begin
       data ? decode(data) : nil
     rescue StandardError => e
-      destroy_session_from_sid(sid, drop: true)
+      delete_session_from_redis(redis_connection, sid, { drop: true })
       on_session_load_error.call(e, sid) if on_session_load_error
       nil
     end
@@ -134,51 +123,44 @@ class RedisSessionStore < ActionDispatch::Session::AbstractSecureStore
     USE_INDIFFERENT_ACCESS ? session.with_indifferent_access : session
   end
 
-  def set_session(env, sid, session_data, options = nil)
-    expiry = get_expiry(env, options)
-    with_redis do |redis|
-      if expiry
-        redis.setex(prefixed(sid), expiry, encode(session_data))
-      else
-        redis.set(prefixed(sid), encode(session_data))
-      end
-    end
-    sid
-  rescue Errno::ECONNREFUSED, Redis::CannotConnectError => e
-    on_redis_down.call(e, env, sid) if on_redis_down
-    false
-  end
-  alias write_session set_session
+  def write_session(req, sid, session_data, options = nil)
+    return false unless sid
 
-  def get_expiry(env, options)
-    session_storage_options = options || env.fetch(ENV_SESSION_OPTIONS_KEY, {})
-    session_storage_options[:ttl] || session_storage_options[:expire_after]
+    if write_fallback
+      key = prefixed_fallback(sid)
+    else
+      key = prefixed(sid)
+    end
+    return false unless key
+
+    with_redis_connection(false) do |redis_connection|
+      redis_connection.set(key, encode(session_data), ex: ttl(default_redis_ttl, options[:expire_after]))
+      sid
+    end
   end
 
   def encode(session_data)
     serializer.dump(session_data)
   end
 
-  def destroy_session(env, sid, options)
-    destroy_session_from_sid(sid, (options || {}).to_hash.merge(env: env))
-  end
-  alias delete_session destroy_session
-
-  def destroy(env)
-    if env['rack.request.cookie_hash'] &&
-       (sid = env['rack.request.cookie_hash'][key])
-      destroy_session_from_sid(sid, drop: true, env: env)
+  def delete_session(req, sid, options)
+    with_redis_connection do |redis_connection|
+      delete_session_from_redis(redis_connection, sid, options)
     end
-    false
   end
 
-  def destroy_session_from_sid(sid, options = {})
-    with_redis do |redis|
-      redis.del(prefixed(sid))
+  def delete_session_from_redis(redis_connection, sid, options)
+    if write_fallback
+      key = prefixed_fallback(sid)
+    else
+      key = prefixed(sid)
     end
-    (options || {})[:drop] ? nil : generate_sid
-  rescue Errno::ECONNREFUSED, Redis::CannotConnectError => e
-    on_redis_down.call(e, options[:env] || {}, sid) if on_redis_down
+    redis_connection.del(key)
+    create_sid_with_empty_session(redis_connection) unless options[:drop]
+  end
+
+  def ttl(ttl, expire_after)
+    expire_after || ttl
   end
 
   def determine_serializer(serializer)
@@ -186,14 +168,13 @@ class RedisSessionStore < ActionDispatch::Session::AbstractSecureStore
     case serializer
     when :marshal then Marshal
     when :json    then JsonSerializer
-    when :hybrid  then HybridSerializer
     else serializer
     end
   end
 
   # Consistent interface for a redis instance from a pool
   # @yield [Redis]
-  def with_redis
+  def with_redis_connection(default_value = nil)
     if redis_pool
       redis_pool.with do |redis|
         yield redis
@@ -201,6 +182,9 @@ class RedisSessionStore < ActionDispatch::Session::AbstractSecureStore
     else
       yield single_redis
     end
+  rescue Errno::ECONNREFUSED, Redis::CannotConnectError => e
+    on_redis_down.call(e) if on_redis_down
+    default_value
   end
 
   # Uses built-in JSON library to encode/decode session
@@ -211,23 +195,6 @@ class RedisSessionStore < ActionDispatch::Session::AbstractSecureStore
 
     def self.dump(value)
       JSON.generate(value, quirks_mode: true)
-    end
-  end
-
-  # Transparently migrates existing session values from Marshal to JSON
-  class HybridSerializer < JsonSerializer
-    MARSHAL_SIGNATURE = "\x04\x08".freeze
-
-    def self.load(value)
-      if needs_migration?(value)
-        Marshal.load(value)
-      else
-        super
-      end
-    end
-
-    def self.needs_migration?(value)
-      value.start_with?(MARSHAL_SIGNATURE)
     end
   end
 end
