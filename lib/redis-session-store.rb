@@ -4,21 +4,13 @@ require 'redis'
 # the MemCacheStore code, simply dropping in Redis instead.
 class RedisSessionStore < ActionDispatch::Session::AbstractSecureStore
   VERSION = '0.12-18f'.freeze
-  # Rails 3.1 and beyond defines the constant elsewhere
-  unless defined?(ENV_SESSION_OPTIONS_KEY)
-    ENV_SESSION_OPTIONS_KEY = if Rack.release.split('.').first.to_i > 1
-                                Rack::RACK_SESSION_OPTIONS
-                              else
-                                Rack::Session::Abstract::ENV_SESSION_OPTIONS_KEY
-                              end
-  end
 
-  USE_INDIFFERENT_ACCESS = defined?(ActiveSupport).freeze
   # ==== Options
   # * +:key+ - Same as with the other cookie stores, key name
   # * +:redis+ - A hash with redis-specific options
   #   * +:url+ - Redis url, default is redis://localhost:6379/0
   #   * +:key_prefix+ - Prefix for keys used in Redis, e.g. +myapp:+
+  #   * +:ttl+ - Default Redis TTL for sessions
   #   * +:expire_after+ - A number in seconds for session timeout
   #   * +:client+ - Connect to Redis with given object rather than create one
   #   * +:client_pool:+ - Connect to Redis with a ConnectionPool
@@ -85,7 +77,12 @@ class RedisSessionStore < ActionDispatch::Session::AbstractSecureStore
   def create_sid_with_empty_session(redis_connection)
     loop do
       sid = generate_sid
-      key = prefixed(sid)
+      if write_fallback
+        key = prefixed(sid)
+      else
+        key = prefixed_fallback(sid)
+      end
+
       if key && redis_connection.set(key, encode({}), nx: true, ex: default_redis_ttl)
         break sid
       end
@@ -119,8 +116,7 @@ class RedisSessionStore < ActionDispatch::Session::AbstractSecureStore
   end
 
   def decode(data)
-    session = serializer.load(data)
-    USE_INDIFFERENT_ACCESS ? session.with_indifferent_access : session
+    serializer.load(data)
   end
 
   def write_session(req, sid, session_data, options = nil)
@@ -151,11 +147,11 @@ class RedisSessionStore < ActionDispatch::Session::AbstractSecureStore
 
   def delete_session_from_redis(redis_connection, sid, options)
     if write_fallback
-      key = prefixed_fallback(sid)
-    else
-      key = prefixed(sid)
+      redis_connection.del(prefixed_fallback(sid))
     end
-    redis_connection.del(key)
+
+    redis_connection.del(prefixed(sid))
+
     create_sid_with_empty_session(redis_connection) unless options[:drop]
   end
 
