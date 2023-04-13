@@ -1,3 +1,5 @@
+# frozen_string_literal: true
+
 require 'redis'
 
 # Redis session storage for Rails, and for Rails only. Derived from
