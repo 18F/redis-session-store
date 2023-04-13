@@ -81,6 +81,7 @@ class RedisSessionStore < ActionDispatch::Session::AbstractSecureStore
     generate_sid
   end
 
+  # @api public
   def find_session(req, sid)
     with_redis_connection(default_rescue_value: [nil, {}]) do |redis_connection|
       existing_session = load_session_from_redis(redis_connection, req, sid)
@@ -111,6 +112,7 @@ class RedisSessionStore < ActionDispatch::Session::AbstractSecureStore
     serializer.load(data)
   end
 
+  # @api public
   def write_session(req, sid, session_data, options = nil)
     return false unless sid
 
@@ -144,6 +146,7 @@ class RedisSessionStore < ActionDispatch::Session::AbstractSecureStore
     serializer.dump(session_data)
   end
 
+  # @api public
   def delete_session(req, sid, options)
     with_redis_connection do |redis_connection|
       delete_session_from_redis(redis_connection, sid, req, options)
