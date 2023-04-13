@@ -77,10 +77,8 @@ class RedisSessionStore < ActionDispatch::Session::AbstractSecureStore
   end
 
   def create_sid(req)
-    sid = generate_sid
-
     req.env['redis_session_store.new_session'] = true
-    sid
+    generate_sid
   end
 
   def find_session(req, sid)
