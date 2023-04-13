@@ -83,12 +83,12 @@ class RedisSessionStore < ActionDispatch::Session::AbstractSecureStore
 
   # @api public
   def find_session(req, sid)
-    with_redis_connection(default_rescue_value: [nil, {}]) do |redis_connection|
+    with_redis_connection do |redis_connection|
       existing_session = load_session_from_redis(redis_connection, req, sid)
       return [sid, existing_session] unless existing_session.nil?
 
       [create_sid(req), {}]
-    end
+    end || [nil, {}]
   end
 
   def load_session_from_redis(redis_connection, req, sid)
@@ -123,16 +123,19 @@ class RedisSessionStore < ActionDispatch::Session::AbstractSecureStore
     end
     return false unless key
 
-    set_options = {
-      ex: options[:expire_after] || default_redis_ttl
-    }
-
-    if req.env['redis_session_store.new_session']
-      set_options[:nx] = true
-    end
+    expiry = options[:expire_after] || default_redis_ttl
+    new_session = req.env['redis_session_store.new_session']
 
     result = with_redis_connection(default_rescue_value: false) do |redis_connection|
-      redis_connection.set(key, encode(session_data), **set_options)
+      if expiry && new_session
+        redis_connection.set(key, encode(session_data), ex: expiry, nx: true)
+      elsif expiry
+        redis_connection.set(key, encode(session_data), ex: expiry)
+      elsif new_session
+        redis_connection.set(key, encode(session_data), nx: true)
+      else
+        redis_connection.set(key, encode(session_data))
+      end
     end
 
     if result

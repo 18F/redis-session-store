@@ -245,7 +245,7 @@ describe RedisSessionStore do
 
     shared_examples_for 'serializer' do
       it 'encodes correctly' do
-        expect(redis).to receive(:set).with(session_id.private_id, expected_encoding, { ex: nil })
+        expect(redis).to receive(:set).with(session_id.private_id, expected_encoding)
         store.send(:write_session, env, session_id, session_data, options)
       end
 
