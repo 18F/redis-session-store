@@ -74,31 +74,24 @@ class RedisSessionStore < ActionDispatch::Session::AbstractSecureStore
     "#{default_options[:key_prefix]}#{sid}"
   end
 
-  def create_sid_with_empty_session(redis_connection)
-    loop do
-      sid = generate_sid
-      if write_fallback
-        key = prefixed(sid)
-      else
-        key = prefixed_fallback(sid)
-      end
+  def create_sid(req)
+    sid = generate_sid
 
-      if key && redis_connection.set(key, encode({}), nx: true, ex: default_redis_ttl)
-        break sid
-      end
-    end
+    req.env['redis_session_store'] ||= {}
+    req.env['redis_session_store']['new_session'] = true
+    sid
   end
 
   def find_session(req, sid)
     with_redis_connection([nil, {}]) do |redis_connection|
-      existing_session = load_session_from_redis(redis_connection, sid)
+      existing_session = load_session_from_redis(redis_connection, req, sid)
       return [sid, existing_session] unless existing_session.nil?
 
-      [create_sid_with_empty_session(redis_connection), {}]
+      [create_sid(req), {}]
     end
   end
 
-  def load_session_from_redis(redis_connection, sid)
+  def load_session_from_redis(redis_connection, req, sid)
     return nil unless sid
     if read_fallback
       data = redis_connection.get(prefixed(sid)) || redis_connection.get(prefixed_fallback(sid))
@@ -128,10 +121,22 @@ class RedisSessionStore < ActionDispatch::Session::AbstractSecureStore
       key = prefixed(sid)
     end
     return false unless key
+    set_options = {
+      ex: ttl(default_redis_ttl, options[:expire_after]),
+    }
 
-    with_redis_connection(false) do |redis_connection|
-      redis_connection.set(key, encode(session_data), ex: ttl(default_redis_ttl, options[:expire_after]))
+    if req.env.dig('redis_session_store', 'new_session') == true
+      set_options[:nx] = true
+    end
+
+    result = with_redis_connection(false) do |redis_connection|
+      redis_connection.set(key, encode(session_data), **set_options)
+    end
+
+    if result
       sid
+    else
+      false
     end
   end
 
@@ -141,18 +146,18 @@ class RedisSessionStore < ActionDispatch::Session::AbstractSecureStore
 
   def delete_session(req, sid, options)
     with_redis_connection do |redis_connection|
-      delete_session_from_redis(redis_connection, sid, options)
+      delete_session_from_redis(redis_connection, sid, req, options)
     end
   end
 
-  def delete_session_from_redis(redis_connection, sid, options)
+  def delete_session_from_redis(redis_connection, sid, req, options)
     if write_fallback
       redis_connection.del(prefixed_fallback(sid))
     end
 
     redis_connection.del(prefixed(sid))
 
-    create_sid_with_empty_session(redis_connection) unless options[:drop]
+    create_sid(req) unless options[:drop]
   end
 
   def ttl(ttl, expire_after)
