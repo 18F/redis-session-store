@@ -79,8 +79,7 @@ class RedisSessionStore < ActionDispatch::Session::AbstractSecureStore
   def create_sid(req)
     sid = generate_sid
 
-    req.env['redis_session_store'] ||= {}
-    req.env['redis_session_store']['new_session'] = true
+    req.env['redis_session_store.new_session'] = true
     sid
   end
 
@@ -104,7 +103,7 @@ class RedisSessionStore < ActionDispatch::Session::AbstractSecureStore
     begin
       data ? decode(data) : nil
     rescue StandardError => e
-      delete_session_from_redis(redis_connection, sid, { drop: true })
+      delete_session_from_redis(redis_connection, sid, req, { drop: true })
       on_session_load_error.call(e, sid) if on_session_load_error
       nil
     end
@@ -127,7 +126,7 @@ class RedisSessionStore < ActionDispatch::Session::AbstractSecureStore
       ex: ttl(default_redis_ttl, options[:expire_after]),
     }
 
-    if req.env.dig('redis_session_store', 'new_session') == true
+    if req.env['redis_session_store.new_session'] == true
       set_options[:nx] = true
     end
 

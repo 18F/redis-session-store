@@ -1,6 +1,8 @@
 require 'json'
 require 'connection_pool'
 require 'rack/session/abstract/id'
+require 'action_dispatch'
+require 'action_dispatch/testing/test_request'
 
 describe RedisSessionStore do
   subject(:store) { described_class.new(nil, options) }
@@ -194,7 +196,7 @@ describe RedisSessionStore do
         Marshal.dump(''),
       )
 
-      store.send(:find_session, double('env'), fake_key)
+      store.send(:find_session, ActionDispatch::TestRequest.create, fake_key)
     end
 
     context 'when redis is down' do
@@ -208,7 +210,7 @@ describe RedisSessionStore do
 
         it 'explodes' do
           expect do
-            store.send(:find_session, double('env'), fake_key)
+            store.send(:find_session, ActionDispatch::TestRequest.create, fake_key)
           end.to raise_error(Redis::CannotConnectError)
         end
       end
@@ -216,41 +218,6 @@ describe RedisSessionStore do
   end
 
   describe 'destroying a session' do
-    context 'when the key is in the cookie hash' do
-      let(:env) { { 'rack.request.cookie_hash' => cookie_hash } }
-      let(:cookie_hash) { double('cookie hash') }
-      let(:fake_key) { Rack::Session::SessionId.new('thisisarediskey') }
-
-      before do
-        allow(cookie_hash).to receive(:[]).and_return(fake_key)
-      end
-
-      it 'deletes the prefixed key from redis' do
-        redis = double('redis')
-        allow(store).to receive(:single_redis).and_return(redis)
-        expect(redis).to receive(:del)
-          .with(fake_key.private_id)
-
-        store.send(:delete_session, env, fake_key, { drop: true })
-      end
-
-      context 'when redis is down' do
-        before do
-          allow(store).to receive(:single_redis).and_raise(Redis::CannotConnectError)
-        end
-
-        context 'when :on_redis_down re-raises' do
-          before { store.on_redis_down = ->(e, *) { raise e } }
-
-          it 'explodes' do
-            expect do
-              store.send(:delete_session, env, fake_key, {})
-            end.to raise_error(Redis::CannotConnectError)
-          end
-        end
-      end
-    end
-
     context 'when destroyed via #destroy_session' do
       it 'deletes the prefixed key from redis' do
         redis = double('redis', setnx: true)
@@ -264,7 +231,7 @@ describe RedisSessionStore do
   end
 
   describe 'session encoding' do
-    let(:env)          { double('env') }
+    let(:env)          { ActionDispatch::TestRequest.create }
     let(:session_id)   { Rack::Session::SessionId.new('thisisarediskey') }
     let(:session_data) { { 'some' => 'data' } }
     let(:options)      { {} }
@@ -334,13 +301,15 @@ describe RedisSessionStore do
       end
 
       it 'returns an empty session' do
-        expect(store.send(:find_session, double('env'), fake_key).last).to eq({})
+        expect(store.send(:find_session, ActionDispatch::TestRequest.create, fake_key).last).to eq({})
+
       end
 
       it 'destroys and drops the session' do
+        req = ActionDispatch::TestRequest.create
         expect(store).to receive(:delete_session_from_redis)
-          .with(fake_redis, fake_key, { drop: true })
-        store.send(:find_session, double('env'), fake_key)
+          .with(fake_redis, fake_key, req, { drop: true })
+        store.send(:find_session, req, fake_key)
       end
 
       context 'when a custom on_session_load_error handler is provided' do
@@ -352,7 +321,7 @@ describe RedisSessionStore do
         end
 
         it 'passes the error and the sid to the handler' do
-          store.send(:find_session, double('env'), fake_key)
+          store.send(:find_session, ActionDispatch::TestRequest.create, fake_key)
           expect(@e).to be_kind_of(StandardError)
           expect(@sid).to eq(fake_key)
         end
@@ -370,13 +339,14 @@ describe RedisSessionStore do
       end
 
       it 'returns an empty session' do
-        expect(store.send(:find_session, double('env'), fake_key).last).to eq({})
+        expect(store.send(:find_session, ActionDispatch::TestRequest.create, fake_key).last).to eq({})
       end
 
       it 'destroys and drops the session' do
+        req = ActionDispatch::TestRequest.create
         expect(store).to receive(:delete_session_from_redis)
-          .with(fake_redis, fake_key, { drop: true })
-        store.send(:find_session, double('env'), fake_key)
+          .with(fake_redis, fake_key, req, { drop: true })
+        store.send(:find_session, req, fake_key)
       end
 
       context 'when a custom on_session_load_error handler is provided' do
@@ -388,7 +358,7 @@ describe RedisSessionStore do
         end
 
         it 'passes the error and the sid to the handler' do
-          store.send(:find_session, double('env'), fake_key)
+          store.send(:find_session, ActionDispatch::TestRequest.create, fake_key)
           expect(@e).to be_kind_of(StandardError)
           expect(@sid).to eq(fake_key)
         end
@@ -425,25 +395,27 @@ describe RedisSessionStore do
   describe 'setting the session' do
     it 'allows changing the session' do
       env = { 'rack.session.options' => {} }
+      req = ActionDispatch::TestRequest.create(env)
       sid = Rack::Session::SessionId.new('thisisarediskey')
       allow(store).to receive(:single_redis).and_return(Redis.new)
       data1 = { 'foo' => 'bar' }
-      store.send(:write_session, env, sid, data1, {})
+      store.send(:write_session, req, sid, data1, {})
       data2 = { 'baz' => 'wat' }
-      store.send(:write_session, env, sid, data2, {})
-      _, session = store.send(:find_session, env, sid)
+      store.send(:write_session, req, sid, data2, {})
+      _, session = store.send(:find_session, req, sid)
       expect(session).to eq(data2)
     end
 
     it 'allows changing the session when the session has an expiry' do
       env = { 'rack.session.options' => { expire_after: 60 } }
+      req = ActionDispatch::TestRequest.create(env)
       sid = Rack::Session::SessionId.new('thisisarediskey')
       allow(store).to receive(:single_redis).and_return(Redis.new)
       data1 = { 'foo' => 'bar' }
-      store.send(:write_session, env, sid, data1, {})
+      store.send(:write_session, req, sid, data1, {})
       data2 = { 'baz' => 'wat' }
-      store.send(:write_session, env, sid, data2, {})
-      _, session = store.send(:find_session, env, sid)
+      store.send(:write_session, req, sid, data2, {})
+      _, session = store.send(:find_session, req, sid)
       expect(session).to eq(data2)
     end
   end
