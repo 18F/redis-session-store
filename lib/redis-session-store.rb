@@ -127,7 +127,7 @@ class RedisSessionStore < ActionDispatch::Session::AbstractSecureStore
       ex: options[:expire_after] || default_redis_ttl
     }
 
-    if req.env['redis_session_store.new_session'] == true
+    if req.env['redis_session_store.new_session']
       set_options[:nx] = true
     end
 
