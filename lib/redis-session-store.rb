@@ -84,7 +84,7 @@ class RedisSessionStore < ActionDispatch::Session::AbstractSecureStore
   end
 
   def find_session(req, sid)
-    with_redis_connection([nil, {}]) do |redis_connection|
+    with_redis_connection(default_rescue_value: [nil, {}]) do |redis_connection|
       existing_session = load_session_from_redis(redis_connection, req, sid)
       return [sid, existing_session] unless existing_session.nil?
 
@@ -131,7 +131,7 @@ class RedisSessionStore < ActionDispatch::Session::AbstractSecureStore
       set_options[:nx] = true
     end
 
-    result = with_redis_connection(false) do |redis_connection|
+    result = with_redis_connection(default_rescue_value: false) do |redis_connection|
       redis_connection.set(key, encode(session_data), **set_options)
     end
 
@@ -173,7 +173,7 @@ class RedisSessionStore < ActionDispatch::Session::AbstractSecureStore
 
   # Consistent interface for a redis instance from a pool
   # @yield [Redis]
-  def with_redis_connection(default_value = nil)
+  def with_redis_connection(default_rescue_value: nil)
     if redis_pool
       redis_pool.with do |redis|
         yield redis
@@ -183,7 +183,7 @@ class RedisSessionStore < ActionDispatch::Session::AbstractSecureStore
     end
   rescue Errno::ECONNREFUSED, Redis::CannotConnectError => e
     on_redis_down.call(e) if on_redis_down
-    default_value
+    default_rescue_value
   end
 
   # Uses built-in JSON library to encode/decode session
