@@ -122,8 +122,9 @@ class RedisSessionStore < ActionDispatch::Session::AbstractSecureStore
       key = prefixed(sid)
     end
     return false unless key
+
     set_options = {
-      ex: ttl(default_redis_ttl, options[:expire_after]),
+      ex: options[:expire_after] || default_redis_ttl
     }
 
     if req.env['redis_session_store.new_session'] == true
@@ -159,10 +160,6 @@ class RedisSessionStore < ActionDispatch::Session::AbstractSecureStore
     redis_connection.del(prefixed(sid))
 
     create_sid(req) unless options[:drop]
-  end
-
-  def ttl(ttl, expire_after)
-    expire_after || ttl
   end
 
   def determine_serializer(serializer)
