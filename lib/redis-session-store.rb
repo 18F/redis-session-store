@@ -73,6 +73,7 @@ class RedisSessionStore < ActionDispatch::Session::AbstractSecureStore
   end
 
   def prefixed_fallback(sid)
+    return nil unless sid
     "#{default_options[:key_prefix]}#{sid}"
   end
 
@@ -151,19 +152,23 @@ class RedisSessionStore < ActionDispatch::Session::AbstractSecureStore
 
   # @api public
   def delete_session(req, sid, options)
-    with_redis_connection do |redis_connection|
-      delete_session_from_redis(redis_connection, sid, req, options)
+    if sid
+      with_redis_connection do |redis_connection|
+        delete_session_from_redis(redis_connection, sid, req, options)
+      end
     end
+
+    create_sid(req) unless options[:drop]
   end
 
   def delete_session_from_redis(redis_connection, sid, req, options)
     if write_fallback
-      redis_connection.del(prefixed_fallback(sid))
+      fallback_key = prefixed_fallback(sid)
+      redis_connection.del(fallback_key) if fallback_key
     end
 
-    redis_connection.del(prefixed(sid))
-
-    create_sid(req) unless options[:drop]
+    key = prefixed(sid)
+    redis_connection.del(key) if key
   end
 
   def determine_serializer(serializer)

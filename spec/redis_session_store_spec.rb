@@ -302,7 +302,6 @@ describe RedisSessionStore do
 
       it 'returns an empty session' do
         expect(store.send(:find_session, ActionDispatch::TestRequest.create, fake_key).last).to eq({})
-
       end
 
       it 'destroys and drops the session' do
