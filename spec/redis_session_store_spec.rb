@@ -188,12 +188,41 @@ describe RedisSessionStore do
       end
     end
 
-    it 'retrieves the prefixed key from redis' do
+    it 'retrieves the prefixed private_id key from redis when read_fallback is not enabled' do
       redis = double('redis')
       allow(store).to receive(:single_redis).and_return(redis)
       allow(store).to receive(:generate_sid).and_return(fake_key)
       expect(redis).to receive(:get).with("#{options[:key_prefix]}#{fake_key.private_id}").and_return(
         Marshal.dump(''),
+      )
+
+      store.send(:find_session, ActionDispatch::TestRequest.create, fake_key)
+    end
+
+    it 'retrieves the prefixed private_id key from redis when read_fallback is not enabled' do
+      options[:redis] = { write_fallback: true }
+      store = described_class.new(nil, options)
+      redis = double('redis')
+      allow(store).to receive(:single_redis).and_return(redis)
+      allow(store).to receive(:generate_sid).and_return(fake_key)
+      expect(redis).to receive(:get).with("#{options[:key_prefix]}#{fake_key.private_id}").and_return(
+        Marshal.dump(''),
+      )
+
+      store.send(:find_session, ActionDispatch::TestRequest.create, fake_key)
+    end
+
+    it 'retrieves the prefixed public_id key from redis when read_fallback is enabled and the private_id key does not exist' do
+      options[:redis] = { read_fallback: true }
+      store = described_class.new(nil, options)
+      redis = double('redis')
+      allow(store).to receive(:single_redis).and_return(redis)
+      allow(store).to receive(:generate_sid).and_return(fake_key)
+      expect(redis).to receive(:get).with("#{options[:key_prefix]}#{fake_key.private_id}").and_return(
+        nil
+      )
+      expect(redis).to receive(:get).with("#{options[:key_prefix]}#{fake_key.public_id}").and_return(
+        Marshal.dump('')
       )
 
       store.send(:find_session, ActionDispatch::TestRequest.create, fake_key)
@@ -219,11 +248,22 @@ describe RedisSessionStore do
 
   describe 'destroying a session' do
     context 'when destroyed via #destroy_session' do
-      it 'deletes the prefixed key from redis' do
-        redis = double('redis', setnx: true)
+      it 'deletes the prefixed private_id key from redis when write_fallback is not enabled' do
+        redis = double('redis')
         allow(store).to receive(:single_redis).and_return(redis)
         sid = store.send(:generate_sid)
         expect(redis).to receive(:del).with("#{options[:key_prefix]}#{sid.private_id}")
+
+        store.send(:delete_session, {}, sid, { drop: true })
+      end
+
+      it 'deletes the prefixed private_id and public_id keys from redis when write_fallback is enabled' do
+        store = described_class.new(nil, { redis: { write_fallback: true } })
+        redis = double('redis')
+        allow(store).to receive(:single_redis).and_return(redis)
+        sid = store.send(:generate_sid)
+        expect(redis).to receive(:del).with("#{options[:key_prefix]}#{sid.private_id}")
+        expect(redis).to receive(:del).with("#{options[:key_prefix]}#{sid.public_id}")
 
         store.send(:delete_session, {}, sid, { drop: true })
       end
@@ -416,6 +456,29 @@ describe RedisSessionStore do
       store.send(:write_session, req, sid, data2, {})
       _, session = store.send(:find_session, req, sid)
       expect(session).to eq(data2)
+    end
+
+    it 'writes to public_id if write_fallback is enabled' do
+      store = described_class.new(nil, { redis: { write_fallback: true } })
+      redis = double('redis')
+      req = ActionDispatch::TestRequest.create({})
+      sid = Rack::Session::SessionId.new('thisisarediskey')
+      allow(store).to receive(:single_redis).and_return(redis)
+      data1 = { 'foo' => 'bar' }
+      expect(redis).to receive(:set).with("#{options[:key_prefix]}#{sid.public_id}", instance_of(String))
+
+      store.send(:write_session, req, sid, data1, {})
+    end
+
+    it 'writes to private_id if write_fallback is not enabled' do
+      redis = double('redis')
+      req = ActionDispatch::TestRequest.create({})
+      sid = Rack::Session::SessionId.new('thisisarediskey')
+      allow(store).to receive(:single_redis).and_return(redis)
+      data1 = { 'foo' => 'bar' }
+      expect(redis).to receive(:set).with("#{options[:key_prefix]}#{sid.private_id}", instance_of(String))
+
+      store.send(:write_session, req, sid, data1, {})
     end
   end
 end
