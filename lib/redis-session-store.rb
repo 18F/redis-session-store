@@ -68,8 +68,11 @@ class RedisSessionStore < ActionDispatch::Session::AbstractSecureStore
   end
 
   def prefixed(sid)
-    return nil unless sid && sid.private_id
-    "#{default_options[:key_prefix]}#{sid.private_id}"
+    return nil unless sid
+    private_id = sid.private_id
+    return nil unless private_id
+
+    "#{default_options[:key_prefix]}#{private_id}"
   end
 
   def prefixed_fallback(sid)
