@@ -108,7 +108,7 @@ Rails.application.config.session_store :redis_session_store,
 By default the Marshal serializer is used. With Rails 4, you can use JSON as a
 custom serializer:
 
-* `:marsha` - serialize cookie values with `Marshal` (Default)
+* `:marshal` - serialize cookie values with `Marshal` (Default)
 * `:json` - serialize cookie values with `JSON`
 * `CustomClass` - You can just pass the constant name of a class that responds to `.load` and `.dump`
 
