@@ -10,7 +10,7 @@ This is a forked version of the [redis-session-store](https://github.com/roidrag
 ## Installation
 
 ``` ruby
-gem 'redis-session-store', git: 'https://github.com/18F/redis-session-store.git', tag: 'v1.0.0-18f'
+gem 'redis-session-store', git: 'https://github.com/18F/redis-session-store.git', tag: 'v1.0.1-18f'
 ```
 
 ## Migrating from Rack::Session::SessionId#public_id to Rack::Session::SessionId#private_id
