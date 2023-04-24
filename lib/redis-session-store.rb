@@ -48,16 +48,27 @@ class RedisSessionStore < ActionDispatch::Session::AbstractSecureStore
     @serializer = determine_serializer(options[:serializer])
     @on_session_load_error = options[:on_session_load_error]
     @default_redis_ttl = redis_options[:ttl]
-    @write_fallback = redis_options[:write_fallback]
+    @read_primary = redis_options.fetch(:read_primary, true)
+    @write_primary = redis_options.fetch(:write_primary, true)
     @read_fallback = redis_options[:read_fallback]
+    @write_fallback = redis_options[:write_fallback]
     verify_handlers!
+
+    if !write_primary && !write_fallback
+      raise ArgumentError, "write_fallback and write_primary cannot both be false"
+    end
+
+    if !read_primary && !read_fallback
+      raise ArgumentError, "read_fallback and read_primary cannot both be false"
+    end
   end
 
   attr_accessor :on_redis_down, :on_session_load_error
 
   private
 
-  attr_reader :redis_pool, :single_redis, :key, :default_options, :serializer, :default_redis_ttl, :read_fallback, :write_fallback
+  attr_reader :redis_pool, :single_redis, :key, :default_options, :serializer, :default_redis_ttl,
+    :read_primary, :write_primary, :read_fallback, :write_fallback
 
   def verify_handlers!
     %w(on_redis_down on_session_load_error).each do |h|
@@ -97,11 +108,13 @@ class RedisSessionStore < ActionDispatch::Session::AbstractSecureStore
 
   def load_session_from_redis(redis_connection, req, sid)
     return nil unless sid
-    if read_fallback
-      data = redis_connection.get(prefixed(sid)) || redis_connection.get(prefixed_fallback(sid))
-    else
-      data = redis_connection.get(prefixed(sid))
-    end
+    data = if read_primary && !read_fallback
+             redis_connection.get(prefixed(sid))
+           elsif read_primary && read_fallback
+             redis_connection.get(prefixed(sid)) || redis_connection.get(prefixed_fallback(sid))
+           elsif !read_primary && read_fallback
+             redis_connection.get(prefixed_fallback(sid))
+           end
 
     begin
       data ? decode(data) : nil
@@ -120,32 +133,41 @@ class RedisSessionStore < ActionDispatch::Session::AbstractSecureStore
   def write_session(req, sid, session_data, options = nil)
     return false unless sid
 
-    if write_fallback
-      key = prefixed_fallback(sid)
-    else
-      key = prefixed(sid)
-    end
+    key = prefixed(sid)
     return false unless key
 
     expiry = options[:expire_after] || default_redis_ttl
     new_session = req.env['redis_session_store.new_session']
 
-    result = with_redis_connection(default_rescue_value: false) do |redis_connection|
-      if expiry && new_session
-        redis_connection.set(key, encode(session_data), ex: expiry, nx: true)
-      elsif expiry
-        redis_connection.set(key, encode(session_data), ex: expiry)
-      elsif new_session
-        redis_connection.set(key, encode(session_data), nx: true)
-      else
-        redis_connection.set(key, encode(session_data))
-      end
-    end
+    result = if write_primary && !write_fallback
+               write_redis_session(key, session_data, expiry: expiry, new_session: new_session)
+             elsif write_fallback && write_primary
+               fallback_key = prefixed_fallback(sid)
+               write_redis_session(fallback_key, session_data, expiry: expiry, new_session: new_session)
+               write_redis_session(key, session_data, expiry: expiry, new_session: new_session)
+             elsif write_fallback && !write_primary
+               fallback_key = prefixed_fallback(sid)
+               write_redis_session(fallback_key, session_data, expiry: expiry, new_session: new_session)
+             end
 
     if result
       sid
     else
       false
+    end
+  end
+
+  def write_redis_session(key, data, expiry: nil, new_session: false)
+    result = with_redis_connection(default_rescue_value: false) do |redis_connection|
+      if expiry && new_session
+        redis_connection.set(key, encode(data), ex: expiry, nx: true)
+      elsif expiry
+        redis_connection.set(key, encode(data), ex: expiry)
+      elsif new_session
+        redis_connection.set(key, encode(data), nx: true)
+      else
+        redis_connection.set(key, encode(data))
+      end
     end
   end
 
@@ -165,7 +187,7 @@ class RedisSessionStore < ActionDispatch::Session::AbstractSecureStore
   end
 
   def delete_session_from_redis(redis_connection, sid, req, options)
-    if write_fallback
+    if write_fallback || read_fallback
       fallback_key = prefixed_fallback(sid)
       redis_connection.del(fallback_key) if fallback_key
     end
