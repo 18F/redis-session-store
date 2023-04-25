@@ -24,52 +24,52 @@ Rails.application.config.session_store :redis_session_store,
   # ...
   redis: {
    # ...
-   read_fallback: true,
-   write_fallback: true,
-   read_primary: false,
-   write_primary: false,
+   read_public_id: true,
+   write_public_id: true,
+   read_private_id: false,
+   write_private_id: false,
   }
 ```
 
-2. Enabling writing to the primary key
+2. Enabling writing to the private\_id key
 
 ```ruby
 Rails.application.config.session_store :redis_session_store,
   # ...
   redis: {
    # ...
-   read_fallback: true,
-   write_fallback: true,
-   read_primary: false,
-   write_primary: true,
+   read_public_id: true,
+   write_public_id: true,
+   read_private_id: false,
+   write_private_id: true,
   }
 ```
 
-3. Enabling reading the primary key
+3. Enabling reading the private\_id key and disabling reading the public\_id key
 
 ```ruby
 Rails.application.config.session_store :redis_session_store,
   # ...
   redis: {
    # ...
-   read_fallback: true,
-   write_fallback: true,
-   read_primary: true,
-   write_primary: true,
+   read_public_id: false,
+   write_public_id: true,
+   read_private_id: true,
+   write_private_id: true,
   }
 ```
 
-4. Disabling reading and writing for the fallback key
+4. Disabling writing for the public\_id key
 
 ```ruby
 Rails.application.config.session_store :redis_session_store,
   # ...
   redis: {
    # ...
-   read_fallback: false,
-   write_fallback: false,
-   read_primary: true,
-   write_primary: true,
+   read_public_id: false,
+   write_public_id: false,
+   read_private_id: true,
+   write_private_id: true,
   }
 ```
 

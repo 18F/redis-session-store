@@ -48,18 +48,18 @@ class RedisSessionStore < ActionDispatch::Session::AbstractSecureStore
     @serializer = determine_serializer(options[:serializer])
     @on_session_load_error = options[:on_session_load_error]
     @default_redis_ttl = redis_options[:ttl]
-    @read_primary = redis_options.fetch(:read_primary, true)
-    @write_primary = redis_options.fetch(:write_primary, true)
-    @read_fallback = redis_options[:read_fallback]
-    @write_fallback = redis_options[:write_fallback]
+    @read_private_id = redis_options.fetch(:read_private_id, true)
+    @write_private_id = redis_options.fetch(:write_private_id, true)
+    @read_public_id = redis_options[:read_public_id]
+    @write_public_id = redis_options[:write_public_id]
     verify_handlers!
 
-    if !write_primary && !write_fallback
-      raise ArgumentError, "write_fallback and write_primary cannot both be false"
+    if !write_private_id && !write_public_id
+      raise ArgumentError, "write_public_id and write_private_id cannot both be false"
     end
 
-    if !read_primary && !read_fallback
-      raise ArgumentError, "read_fallback and read_primary cannot both be false"
+    if !read_private_id && !read_public_id
+      raise ArgumentError, "read_public_id and read_private_id cannot both be false"
     end
   end
 
@@ -68,7 +68,7 @@ class RedisSessionStore < ActionDispatch::Session::AbstractSecureStore
   private
 
   attr_reader :redis_pool, :single_redis, :key, :default_options, :serializer, :default_redis_ttl,
-    :read_primary, :write_primary, :read_fallback, :write_fallback
+    :read_private_id, :write_private_id, :read_public_id, :write_public_id
 
   def verify_handlers!
     %w(on_redis_down on_session_load_error).each do |h|
@@ -86,7 +86,7 @@ class RedisSessionStore < ActionDispatch::Session::AbstractSecureStore
     "#{default_options[:key_prefix]}#{private_id}"
   end
 
-  def prefixed_fallback(sid)
+  def prefixed_public_id(sid)
     return nil unless sid
     "#{default_options[:key_prefix]}#{sid}"
   end
@@ -108,12 +108,12 @@ class RedisSessionStore < ActionDispatch::Session::AbstractSecureStore
 
   def load_session_from_redis(redis_connection, req, sid)
     return nil unless sid
-    data = if read_primary && !read_fallback
+    data = if read_private_id && !read_public_id
              redis_connection.get(prefixed(sid))
-           elsif read_primary && read_fallback
-             redis_connection.get(prefixed(sid)) || redis_connection.get(prefixed_fallback(sid))
-           elsif !read_primary && read_fallback
-             redis_connection.get(prefixed_fallback(sid))
+           elsif read_private_id && read_public_id
+             redis_connection.get(prefixed(sid)) || redis_connection.get(prefixed_public_id(sid))
+           elsif !read_private_id && read_public_id
+             redis_connection.get(prefixed_public_id(sid))
            end
 
     begin
@@ -139,15 +139,15 @@ class RedisSessionStore < ActionDispatch::Session::AbstractSecureStore
     expiry = options[:expire_after] || default_redis_ttl
     new_session = req.env['redis_session_store.new_session']
 
-    result = if write_primary && !write_fallback
+    result = if write_private_id && !write_public_id
                write_redis_session(key, session_data, expiry: expiry, new_session: new_session)
-             elsif write_fallback && write_primary
-               fallback_key = prefixed_fallback(sid)
-               write_redis_session(fallback_key, session_data, expiry: expiry, new_session: new_session)
+             elsif write_public_id && write_private_id
+               public_id_key = prefixed_public_id(sid)
+               write_redis_session(public_id_key, session_data, expiry: expiry, new_session: new_session)
                write_redis_session(key, session_data, expiry: expiry, new_session: new_session)
-             elsif write_fallback && !write_primary
-               fallback_key = prefixed_fallback(sid)
-               write_redis_session(fallback_key, session_data, expiry: expiry, new_session: new_session)
+             elsif write_public_id && !write_private_id
+               public_id_key = prefixed_public_id(sid)
+               write_redis_session(public_id_key, session_data, expiry: expiry, new_session: new_session)
              end
 
     if result
@@ -187,9 +187,9 @@ class RedisSessionStore < ActionDispatch::Session::AbstractSecureStore
   end
 
   def delete_session_from_redis(redis_connection, sid, req, options)
-    if write_fallback || read_fallback
-      fallback_key = prefixed_fallback(sid)
-      redis_connection.del(fallback_key) if fallback_key
+    if write_public_id || read_public_id
+      public_id_key = prefixed_public_id(sid)
+      redis_connection.del(public_id_key) if public_id_key
     end
 
     key = prefixed(sid)

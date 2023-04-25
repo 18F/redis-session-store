@@ -188,8 +188,8 @@ describe RedisSessionStore do
       end
     end
 
-    it 'retrieves the prefixed primary key from redis when read_fallback is not enabled' do
-      options[:redis] = { write_primary: true, write_fallback: false, read_primary: true, read_fallback: false }
+    it 'retrieves the prefixed private_id from redis when read_public_id is not enabled' do
+      options[:redis] = { write_private_id: true, write_public_id: false, read_private_id: true, read_public_id: false }
       store = described_class.new(nil, options)
       redis = double('redis')
       allow(store).to receive(:single_redis).and_return(redis)
@@ -201,8 +201,21 @@ describe RedisSessionStore do
       store.send(:find_session, ActionDispatch::TestRequest.create, fake_key)
     end
 
-    it 'does not retrieve the prefixed fallback key from redis when read_fallback is not enabled' do
-      options[:redis] = { write_primary: true, write_fallback: false, read_primary: true, read_fallback: false }
+    it 'does not retrieve the prefixed public_id from redis when read_public_id is not enabled' do
+      options[:redis] = { write_private_id: true, write_public_id: false, read_private_id: true, read_public_id: false }
+      store = described_class.new(nil, options)
+      redis = double('redis')
+      allow(store).to receive(:single_redis).and_return(redis)
+      allow(store).to receive(:generate_sid).and_return(fake_key)
+      expect(redis).to receive(:get).with("#{options[:key_prefix]}#{fake_key.private_id}").and_return(
+        nil,
+      )
+
+      store.send(:find_session, ActionDispatch::TestRequest.create, fake_key)
+    end
+
+    it 'retrieves the prefixed public_id key from redis when read_public_id is not enabled' do
+      options[:redis] = { write_private_id: true, write_public_id: true, read_private_id: true, read_public_id: false }
       store = described_class.new(nil, options)
       redis = double('redis')
       allow(store).to receive(:single_redis).and_return(redis)
@@ -214,21 +227,8 @@ describe RedisSessionStore do
       store.send(:find_session, ActionDispatch::TestRequest.create, fake_key)
     end
 
-    it 'retrieves the prefixed public_id key from redis when read_fallback is not enabled' do
-      options[:redis] = { write_primary: true, write_fallback: true, read_primary: true, read_fallback: false }
-      store = described_class.new(nil, options)
-      redis = double('redis')
-      allow(store).to receive(:single_redis).and_return(redis)
-      allow(store).to receive(:generate_sid).and_return(fake_key)
-      expect(redis).to receive(:get).with("#{options[:key_prefix]}#{fake_key.private_id}").and_return(
-        Marshal.dump(''),
-      )
-
-      store.send(:find_session, ActionDispatch::TestRequest.create, fake_key)
-    end
-
-    it 'retrieves the prefixed fallback key from redis when read_fallback is enabled and the primary key does not exist' do
-      options[:redis] = { read_primary: true, read_fallback: true }
+    it 'retrieves the prefixed public_id from redis when read_public_id is enabled and the private_id does not exist' do
+      options[:redis] = { read_private_id: true, read_public_id: true }
       store = described_class.new(nil, options)
       redis = double('redis')
       allow(store).to receive(:single_redis).and_return(redis)
@@ -263,7 +263,7 @@ describe RedisSessionStore do
 
   describe 'destroying a session' do
     context 'when destroyed via #destroy_session' do
-      it 'deletes the prefixed primary key from redis when write_fallback is not enabled' do
+      it 'deletes the prefixed private_id from redis when write_public_id is not enabled' do
         redis = double('redis')
         allow(store).to receive(:single_redis).and_return(redis)
         sid = store.send(:generate_sid)
@@ -272,8 +272,8 @@ describe RedisSessionStore do
         store.send(:delete_session, {}, sid, { drop: true })
       end
 
-      it 'deletes the prefixed primary and fallback keys from redis when write_fallback is enabled' do
-        store = described_class.new(nil, { redis: { write_fallback: true } })
+      it 'deletes the prefixed private_id and public_id from redis when write_public_id is enabled' do
+        store = described_class.new(nil, { redis: { write_public_id: true } })
         redis = double('redis')
         allow(store).to receive(:single_redis).and_return(redis)
         sid = store.send(:generate_sid)
@@ -283,8 +283,8 @@ describe RedisSessionStore do
         store.send(:delete_session, {}, sid, { drop: true })
       end
 
-      it 'deletes the prefixed primary and fallback keys from redis when read_fallback is enabled' do
-        store = described_class.new(nil, { redis: { read_fallback: true } })
+      it 'deletes the prefixed private_id and public_id from redis when read_public_id is enabled' do
+        store = described_class.new(nil, { redis: { read_public_id: true } })
         redis = double('redis')
         allow(store).to receive(:single_redis).and_return(redis)
         sid = store.send(:generate_sid)
@@ -484,8 +484,8 @@ describe RedisSessionStore do
       expect(session).to eq(data2)
     end
 
-    it 'writes to primary and fallback key if write_primary and write_fallback are enabled' do
-      store = described_class.new(nil, { redis: { write_primary: true, write_fallback: true } })
+    it 'writes to private_id and public_id if write_private_id and write_public_id are enabled' do
+      store = described_class.new(nil, { redis: { write_private_id: true, write_public_id: true } })
       redis = double('redis')
       req = ActionDispatch::TestRequest.create({})
       sid = Rack::Session::SessionId.new('thisisarediskey')
@@ -497,8 +497,8 @@ describe RedisSessionStore do
       store.send(:write_session, req, sid, data1, {})
     end
 
-    it 'writes to primary key if write_primary is enabled' do
-      store = described_class.new(nil, { redis: { write_primary: true } })
+    it 'writes to private_id if write_private_id is enabled' do
+      store = described_class.new(nil, { redis: { write_private_id: true } })
       redis = double('redis')
       req = ActionDispatch::TestRequest.create({})
       sid = Rack::Session::SessionId.new('thisisarediskey')
@@ -509,8 +509,8 @@ describe RedisSessionStore do
       store.send(:write_session, req, sid, data1, {})
     end
 
-    it 'writes only to fallback key if write_fallback is enabled and write_primary is not enabled' do
-      store = described_class.new(nil, { redis: { write_primary: false, write_fallback: true } })
+    it 'writes only to public_id if write_public_id is enabled and write_private_id is not enabled' do
+      store = described_class.new(nil, { redis: { write_private_id: false, write_public_id: true } })
       redis = double('redis')
       req = ActionDispatch::TestRequest.create({})
       sid = Rack::Session::SessionId.new('thisisarediskey')
