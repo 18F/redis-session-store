@@ -138,16 +138,17 @@ class RedisSessionStore < ActionDispatch::Session::AbstractSecureStore
 
     expiry = options[:expire_after] || default_redis_ttl
     new_session = req.env['redis_session_store.new_session']
+    encoded_data = encode(session_data)
 
     result = if write_private_id && !write_public_id
-               write_redis_session(key, session_data, expiry: expiry, new_session: new_session)
+               write_redis_session(key, encoded_data, expiry: expiry, new_session: new_session)
              elsif write_public_id && write_private_id
                public_id_key = prefixed_public_id(sid)
-               write_redis_session(public_id_key, session_data, expiry: expiry, new_session: new_session)
-               write_redis_session(key, session_data, expiry: expiry, new_session: new_session)
+               write_redis_session(public_id_key, encoded_data, expiry: expiry, new_session: new_session)
+               write_redis_session(key, encoded_data, expiry: expiry, new_session: new_session)
              elsif write_public_id && !write_private_id
                public_id_key = prefixed_public_id(sid)
-               write_redis_session(public_id_key, session_data, expiry: expiry, new_session: new_session)
+               write_redis_session(public_id_key, encoded_data, expiry: expiry, new_session: new_session)
              end
 
     if result
@@ -160,13 +161,13 @@ class RedisSessionStore < ActionDispatch::Session::AbstractSecureStore
   def write_redis_session(key, data, expiry: nil, new_session: false)
     result = with_redis_connection(default_rescue_value: false) do |redis_connection|
       if expiry && new_session
-        redis_connection.set(key, encode(data), ex: expiry, nx: true)
+        redis_connection.set(key, data, ex: expiry, nx: true)
       elsif expiry
-        redis_connection.set(key, encode(data), ex: expiry)
+        redis_connection.set(key, data, ex: expiry)
       elsif new_session
-        redis_connection.set(key, encode(data), nx: true)
+        redis_connection.set(key, data, nx: true)
       else
-        redis_connection.set(key, encode(data))
+        redis_connection.set(key, data)
       end
     end
   end
