@@ -13,7 +13,6 @@ class RedisSessionStore < ActionDispatch::Session::AbstractSecureStore
   #   * +:url+ - Redis url, default is redis://localhost:6379/0
   #   * +:key_prefix+ - Prefix for keys used in Redis, e.g. +myapp:+
   #   * +:ttl+ - Default Redis TTL for sessions
-  #   * +:expire_after+ - A number in seconds for session timeout
   #   * +:client+ - Connect to Redis with given object rather than create one
   #   * +:client_pool:+ - Connect to Redis with a ConnectionPool
   # * +:on_redis_down:+ - Called with err, env, and SID on Errno::ECONNREFUSED
@@ -25,7 +24,7 @@ class RedisSessionStore < ActionDispatch::Session::AbstractSecureStore
   #     Rails.application.config.session_store :redis_session_store,
   #       key: 'your_session_key',
   #       redis: {
-  #         expire_after: 120.minutes,
+  #         ttl: 120.minutes,
   #         key_prefix: 'myapp:session:',
   #         url: 'redis://localhost:6379/0'
   #       },
