@@ -5,7 +5,7 @@ require 'redis'
 # Redis session storage for Rails, and for Rails only. Derived from
 # the MemCacheStore code, simply dropping in Redis instead.
 class RedisSessionStore < ActionDispatch::Session::AbstractSecureStore
-  VERSION = '1.0.1-18f'.freeze
+  VERSION = '1.0.2-18f'.freeze
 
   # ==== Options
   # * +:key+ - Same as with the other cookie stores, key name
